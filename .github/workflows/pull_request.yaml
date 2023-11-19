@@ -1,0 +1,52 @@
+name: 'pull_request'
+
+# yamllint disable-line rule:truthy
+on:
+  # onl run this workflow on pull request events
+  pull_request
+
+jobs:
+  review_app:
+    runs-on: ubuntu-latest
+    # only run when a pull request is opened
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    steps:
+      - name: Cloning repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to dokku
+        uses: dokku/github-action@master
+        with:
+          # create a review app
+          command: review-apps:create
+          git_remote_url: 'ssh://dokku@vvil.jp:22/website'
+          # specify a name for the review app
+          review_app_name: review-appname-${{ github.event.pull_request.number }}
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Set HTTPS
+        run: |
+          echo "Setting HTTPS."
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GITHUB_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
+          chmod 700 ~/.ssh/id_rsa
+          eval $(ssh-agent -s)
+          ssh-add ~/.ssh/id_rsa
+          ssh -v -o StrictHostKeyChecking=no dokku@vvil.jp "domains:set pr-${{ github.event.pull_request.number }} pr-${{ github.event.pull_request.number }}.vvil.jp"
+
+  destroy_review_app:
+    runs-on: ubuntu-latest
+    # only run when a pull request is closed
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    steps:
+      - name: Destroy the review app
+        uses: dokku/github-action@master
+        with:
+          # destroy a review app
+          command: review-apps:destroy
+          git_remote_url: 'ssh://dokku@vvil.jp:22/website'
+          # specify a name for the review app
+          review_app_name: review-appname-${{ github.event.pull_request.number }}
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
